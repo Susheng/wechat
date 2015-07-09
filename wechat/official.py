@@ -207,7 +207,8 @@ class WxBaseApi(object):
                 return None
         return self._access_token
 
-    def set_access_token(self, token):
+    @access_token.setter
+    def access_token(self, token):
         self._access_token = token
 
     def _process_response(self, rsp):
@@ -279,25 +280,32 @@ class WxBaseApi(object):
         else:
             return None, APIError(rsp.status_code, 'http error')
 
+    def _upload_media(self, obj, resource, content_type, path_type):
+        rsp, err = None, None
+        resource_path = resource + '_' + path_type
+        if obj.get(resource_path):
+            rsp, err = self.upload_media(
+                content_type,
+                file_content=obj.get(resource_path))
+            if err:
+                # access_token有效期为3小时，可能因为失效而导致上传失败，在这里重新获取一次
+                self.access_token = None
+                rsp, err = self.upload_media(
+                    content_type,
+                    file_path=obj.get(resource_path))
+                if err:
+                    return None
+            return rsp['media_id']
+        return None
+
     def _get_media_id(self, obj, resource, content_type):
         if not obj.get(resource + '_id'):
-            rsp, err = None, None
-            if obj.get(resource + '_content'):
-                rsp, err = self.upload_media(
-                    content_type,
-                    file_content=obj.get(resource + '_content'))
-                if err:
-                    return None
-            elif obj.get(resource + '_url'):
-                rs = requests.get(obj.get(resource + '_url'))
-                rsp, err = self.upload_media(
-                    content_type,
-                    file_content=rs.content)
-                if err:
-                    return None
-            else:
-                return None
-            return rsp['media_id']
+            mid = None
+            for path_type in ['content', 'url', 'path']:
+                mid = self._upload_media(obj, resource, content_type, path_type)
+                if mid:
+                    return mid
+            return mid
         return obj.get(resource + '_id')
 
 
